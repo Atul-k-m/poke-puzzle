@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pokémon Puzzle Game</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            font-family: Arial, sans-serif;
+            background-color: #f0f0f0;
+            margin: 0;
+            padding: 20px;
+        }
+        h1 {
+            margin-bottom: 20px;
+        }
+        canvas {
+            border: 2px solid black;
+            margin-bottom: 20px;
+        }
+        #controls {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        #controls button,
+        #controls select {
+            margin: 0 10px;
+            padding: 10px;
+            font-size: 16px;
+            cursor: pointer;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+        }
+        #back-button {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            padding: 10px;
+            font-size: 16px;
+            cursor: pointer;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+            background-color: #fff;
+        }
+    </style>
+</head>
+<body>
+    <button id="back-button">Back</button>
+    <h1>Pokémon Puzzle Game</h1>
+    <canvas id="puzzle-canvas" width="400" height="400"></canvas>
+    <div id="controls">
+        <button id="load-pokemon">Load New Pokémon</button>
+        <button id="reset-game">Reset Game</button>
+        <label for="difficulty">Difficulty:</label>
+        <select id="difficulty">
+            <option value="3">3x3</option>
+            <option value="4" selected>4x4</option>
+            <option value="5">5x5</option>
+        </select>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const canvas = document.getElementById('puzzle-canvas');
+            const context = canvas.getContext('2d');
+            const loadButton = document.getElementById('load-pokemon');
+            const resetButton = document.getElementById('reset-game');
+            const difficultySelect = document.getElementById('difficulty');
+
+            let gridSize = 4; // Default 4x4 grid
+            let pieces = [];
+            let pieceSize;
+            let pokemonImage = new Image();
+            let draggingPiece = null;
+            let targetPiece = null;
+            let isGameActive = false;
+
+            canvas.width = 400;
+            canvas.height = 400;
+
+            loadButton.addEventListener('click', loadNewPokemon);
+            resetButton.addEventListener('click', resetGame);
+            difficultySelect.addEventListener('change', changeDifficulty);
+
+            // Initial load
+            loadNewPokemon();
+
+            function loadNewPokemon() {
+                const randomId = Math.floor(Math.random() * 150) + 1;
+                fetch(`https://pokeapi.co/api/v2/pokemon/${randomId}`)
+                    .then(response => response.json())
+                    .then(pokemon => {
+                        const imageUrl = pokemon.sprites.other['official-artwork'].front_default;
+                        if (imageUrl) {
+                            loadImage(imageUrl);
+                        } else {
+                            alert('Failed to load Pokémon image. Try again.');
+                        }
+                    });
+            }
+
+            function loadImage(url) {
+                pokemonImage.src = url;
+                pokemonImage.onload = () => {
+                    initializeGame(pokemonImage);
+                };
+            }
+
+            function initializeGame(image) {
+                pieces = [];
+                context.clearRect(0, 0, canvas.width, canvas.height);
+
+                const scaleFactor = Math.min(canvas.width / image.width, canvas.height / image.height);
+                const imgWidth = image.width * scaleFactor;
+                const imgHeight = image.height * scaleFactor;
+                pieceSize = Math.min(imgWidth, imgHeight) / gridSize;
+
+                canvas.width = imgWidth;
+                canvas.height = imgHeight;
+
+                createPieces(image, imgWidth, imgHeight);
+                shufflePieces();
+                drawPieces();
+                setupDragAndDrop();
+                isGameActive = true;
+            }
+
+            function createPieces(image, imgWidth, imgHeight) {
+                for (let y = 0; y < gridSize; y++) {
+                    for (let x = 0; x < gridSize; x++) {
+                        const piece = {
+                            imgX: x * pieceSize,
+                            imgY: y * pieceSize,
+                            correctX: x,
+                            correctY: y,
+                            currentX: x,
+                            currentY: y
+                        };
+                        pieces.push(piece);
+                    }
+                }
+            }
+
+            function shufflePieces() {
+                do {
+                    for (let i = pieces.length - 1; i > 0; i--) {
+                        const j = Math.floor(Math.random() * (i + 1));
+                        [pieces[i], pieces[j]] = [pieces[j], pieces[i]];
+                    }
+                } while (!isSolvable(pieces));
+
+                // Adjust current positions after shuffling
+                pieces.forEach((piece, index) => {
+                    piece.currentX = index % gridSize;
+                    piece.currentY = Math.floor(index / gridSize);
+                });
+            }
+
+            function isSolvable(pieces) {
+                let inversionCount = 0;
+                for (let i = 0; i < pieces.length - 1; i++) {
+                    for (let j = i + 1; j < pieces.length; j++) {
+                        if (pieces[i].correctY * gridSize + pieces[i].correctX > pieces[j].correctY * gridSize + pieces[j].correctX) {
+                            inversionCount++;
+                        }
+                    }
+                }
+                return inversionCount % 2 === 0;
+            }
+
+            function drawPieces() {
+                context.clearRect(0, 0, canvas.width, canvas.height);
+                pieces.forEach(piece => {
+                    context.drawImage(
+                        pokemonImage,
+                        piece.imgX, piece.imgY, pieceSize, pieceSize,
+                        piece.currentX * pieceSize, piece.currentY * pieceSize, pieceSize, pieceSize
+                    );
+                    context.strokeRect(piece.currentX * pieceSize, piece.currentY * pieceSize, pieceSize, pieceSize); // Draw border
+                });
+            }
+
+            function setupDragAndDrop() {
+    canvas.addEventListener('mousedown', onMouseDown);
+    canvas.addEventListener('mousemove', onMouseMove);
+    canvas.addEventListener('mouseup', onMouseUp);
+
+    // Add touch event listeners
+    canvas.addEventListener('touchstart', handleTouchStart);
+    canvas.addEventListener('touchmove', handleTouchMove);
+    canvas.addEventListener('touchend', handleTouchEnd);
+}
+
+function handleTouchStart(e) {
+    e.preventDefault();
+    const touch = e.touches[0];
+    const mouseEvent = new MouseEvent('mousedown', {
+        clientX: touch.clientX,
+        clientY: touch.clientY
+    });
+    canvas.dispatchEvent(mouseEvent);
+}
+
+function handleTouchMove(e) {
+    e.preventDefault();
+    const touch = e.touches[0];
+    const mouseEvent = new MouseEvent('mousemove', {
+        clientX: touch.clientX,
+        clientY: touch.clientY
+    });
+    canvas.dispatchEvent(mouseEvent);
+}
+
+function handleTouchEnd(e) {
+    e.preventDefault();
+    const mouseEvent = new MouseEvent('mouseup', {});
+    canvas.dispatchEvent(mouseEvent);
+}
+
+            function getPieceUnderMouse(x, y) {
+                return pieces.find(piece => 
+                    x > piece.currentX * pieceSize && x < piece.currentX * pieceSize + pieceSize &&
+                    y > piece.currentY * pieceSize && y < piece.currentY * pieceSize + pieceSize
+                );
+            }
+
+            function onMouseDown(e) {
+                if (!isGameActive) return;
+                const mousePos = getMousePos(e);
+                draggingPiece = getPieceUnderMouse(mousePos.x, mousePos.y);
+            }
+
+            function onMouseMove(e) {
+                if (!isGameActive || !draggingPiece) return;
+                const mousePos = getMousePos(e);
+                targetPiece = getPieceUnderMouse(mousePos.x, mousePos.y);
+            }
+
+            function onMouseUp(e) {
+                if (!isGameActive || !draggingPiece || !targetPiece) return;
+
+                if (draggingPiece !== targetPiece) {
+                    // Swap current positions
+                    [draggingPiece.currentX, targetPiece.currentX] = [targetPiece.currentX, draggingPiece.currentX];
+                    [draggingPiece.currentY, targetPiece.currentY] = [targetPiece.currentY, draggingPiece.currentY];
+                }
+
+                draggingPiece = null;
+                targetPiece = null;
+                drawPieces();
+                checkIfSolved();
+            }
+
+            function getMousePos(event) {
+                const rect = canvas.getBoundingClientRect();
+                return {
+                    x: event.clientX - rect.left,
+                    y: event.clientY - rect.top
+                };
+            }
+
+            function checkIfSolved() {
+                if (pieces.every(piece => piece.correctX === piece.currentX && piece.correctY === piece.currentY)) {
+                    setTimeout(() => {
+                        alert('Congratulations! You solved the puzzle!');
+                        isGameActive = false;
+                    }, 100);
+                }
+            }
+
+            function resetGame() {
+                if (pokemonImage.src) {
+                    initializeGame(pokemonImage);
+                }
+            }
+
+            function changeDifficulty() {
+                gridSize = parseInt(difficultySelect.value);
+                if (pokemonImage.src) {
+                    initializeGame(pokemonImage);
+                }
+            }
+        });
+    </script>
+</body>
+</html>
